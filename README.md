@@ -1,0 +1,1 @@
+# permissionsContracts-sc
