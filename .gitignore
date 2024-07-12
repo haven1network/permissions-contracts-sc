@@ -1,0 +1,13 @@
+/.idea/
+/.parcel-cache/
+/.vale-styles/
+/.vale.ini
+/dist/
+/node_modules/
+/.env.local
+/pgdata
+/pgdata-bridge
+/pgdata-portal
+/swagger_output.json
+/db/**/client
+/src/generated-typings/
