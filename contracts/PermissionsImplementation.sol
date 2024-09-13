@@ -187,6 +187,11 @@ contract PermissionsImplementation {
     function addAdminAccount(address _account) external
     onlyInterface
     networkBootStatus(false) {
+        // if one admin already exists, revert to make sure only one admin exists
+        // Because we are still in the boot process, there should be no accounts yet
+        require(accountManager.getNumberOfAccounts() == 0, "Admin already exists"); 
+        // require(!_checkOrgAdminExists(adminOrg), "Admin already exists");
+        // ^ this only checks for existence of org admin, this will not be true, because we block the creation of org admins
         updateVoterList(adminOrg, _account, true);
         accountManager.assignAdminRole(_account, adminOrg, adminRole, 2);
     }
@@ -224,16 +229,15 @@ contract PermissionsImplementation {
     {
         require(networkBoot == true, "Incorrect network boot status");
         require(isNetworkAdmin(_caller) == true, "account is not a network admin account");
-        voterManager.addVotingItem(adminOrg, _orgId, _enodeId, _account, 1);
+        voterManager.addVotingItem(adminOrg, _orgId, _enodeId, _caller, 1);
         orgManager.addOrg(_orgId);
         nodeManager.addNode(_enodeId, _ip, _port, _raftport, _orgId);
-        require(validateAccount(_account, _orgId) == true,
-            "Operation cannot be performed");
-        accountManager.assignAdminRole(_account, _orgId, orgAdminRole, 1);
+        // removed assigning the orgAdmin because only one admin is allowed
+        // _account is a left over from the old implementation
     }
 
-    /** @notice functions to approve a pending approval org record by networ
-        admin account. once majority votes are received the org is
+    /** @notice function to approve a pending approval org recorded by network
+        admin account. Once majority votes are received the org is
         marked as approved
       * @param _orgId unique organization id
       * @param _enodeId enode id linked to the organization
@@ -252,7 +256,8 @@ contract PermissionsImplementation {
             orgManager.approveOrg(_orgId);
             roleManager.addRole(orgAdminRole, _orgId, fullAccess, true, true);
             nodeManager.approveNode(_enodeId, _ip, _port, _raftport, _orgId);
-            accountManager.addNewAdmin(_orgId, _account);
+            // removed approving the orgAdmin because only one admin is allowed
+            // _account is a left over from the old implementation
         }
     }
 
@@ -357,8 +362,8 @@ contract PermissionsImplementation {
     }
 
     // Account related functions
-    /** @notice function to assign network admin/org admin role to an account
-        this can be executed by network admin accounts only. it assigns
+    /** @notice function to assign network admin/org admin role to an account.
+        This can be executed by network admin accounts only. It assigns
         the role to the accounts and creates voting record for network
         admin accounts
       * @param _orgId unique id of the organization to which the account belongs
@@ -368,6 +373,8 @@ contract PermissionsImplementation {
     function assignAdminRole(string calldata _orgId, address _account,
         string calldata _roleId, address _caller) external
     onlyInterface orgExists(_orgId) networkAdmin(_caller) {
+        // block attempts to assign any role other than network admin
+        require(keccak256(abi.encode(_roleId)) == keccak256(abi.encode(adminRole)), "can only assign network admin role");
         accountManager.assignAdminRole(_account, _orgId, _roleId, 1);
         //add voting item
         voterManager.addVotingItem(adminOrg, _orgId, "", _account, 4);
@@ -375,25 +382,47 @@ contract PermissionsImplementation {
 
     /** @notice function to approve network admin/org admin role assigment
         this can be executed by network admin accounts only.
+        @dev After the transfer of admin rights, please assign the old admin a new non admin role with assignAccountRole
       * @param _orgId unique id of the organization to which the account belongs
-      * @param _account account id
+      * @param _account account id to make new admin
       */
     function approveAdminRole(string calldata _orgId, address _account,
         address _caller) external onlyInterface networkAdmin(_caller) {
+        // Added a check to ensure that the account being approved is subject of voting
+        (, , address newAdmin,) = voterManager.getPendingOpDetails(_orgId);
+        require(newAdmin == _account, "new admin is not the account being approved");
+
         if ((processVote(adminOrg, _caller, 4))) {
-            (bool ret, address account) = accountManager.removeExistingAdmin(_orgId);
-            if (ret) {
-                updateVoterList(adminOrg, account, false);
-            }
-            bool ret1 = accountManager.addNewAdmin(_orgId, _account);
-            if (ret1) {
-                updateVoterList(adminOrg, _account, true);
-            }
+            // There must only be one admin. So this will always trigger at the first call.
+            // This also makes the _caller the old admin
+
+            // Remove the existing admin from its role and the voter list
+            // For removal of orgAdmin rights, assigning the current admin the orgAdmin role
+            accountManager.assignAdminRole(_caller, _orgId, orgAdminRole, 1); // assigning status 1 (suspended)
+            // Approve to properly set as org admin 
+            accountManager.addNewAdmin(_orgId, _caller); // approved to status 2
+            
+            // Now revoking the old admin from the orgAdmin role
+            accountManager.removeExistingAdmin(_orgId); // revoked to status 6
+            updateVoterList(adminOrg, _caller, false);
+
+            // Because org admin is never actually removed in orgAdminIndex, we first override it with the new admin
+            // This will replace orgAdminIndex with the new admin, the old admin is now only a revoked (status 6) org admin
+            // It is advised to assign the old orgAdmin a new role with assignAccountRole after this to fully clear his role
+            accountManager.assignAdminRole(_account, _orgId, orgAdminRole, 1); // assigning status 1 (suspended)
+            accountManager.addNewAdmin(_orgId, _account);
+            // Assign back as network admin
+            accountManager.assignAdminRole(_account, _orgId, adminRole, 1);
+            // Approve the new admiin and add to the the voter list
+            accountManager.addNewAdmin(_orgId, _account);
+            updateVoterList(adminOrg, _account, true);
         }
     }
 
     /** @notice function to update account status. can be executed by org admin
         account only.
+      * @dev This function must not be used to alter the status of the admin account. 
+        accountManager.updateAccountStatus will check this.
       * @param _orgId unique id of the organization to which the account belongs
       * @param _account account id
       * @param _action 1-suspend 2-activate back 3-blacklist
@@ -406,6 +435,7 @@ contract PermissionsImplementation {
         // recovery
         require((_action == 1 || _action == 2 || _action == 3),
             "invalid action. operation not allowed");
+        // gets reverted if the account is the admin account
         accountManager.updateAccountStatus(_orgId, _account, _action);
     }
 
@@ -566,6 +596,13 @@ contract PermissionsImplementation {
     orgApproved(_orgId) {
         require(validateAccount(_account, _orgId) == true, "operation cannot be performed");
         require(_roleExists(_roleId, _orgId) == true, "role does not exists");
+        // make sure the account is not the active (status 2) admin - revert so he can not be demoted with this function
+        string memory accountRole = accountManager.getAccountRole(_account);
+        if(keccak256(abi.encode(accountRole)) == keccak256(abi.encode(orgAdminRole)) 
+            || keccak256(abi.encode(accountRole)) == keccak256(abi.encode(adminRole))){
+            uint256 accountStatus = accountManager.getAccountStatus(_account);
+            require(accountStatus != 2, "account is the active admin");
+        }
         bool admin = roleManager.isAdminRole(_roleId, _orgId, _getUltimateParent(_orgId));
         accountManager.assignAccountRole(_account, _orgId, _roleId, admin);
     }
