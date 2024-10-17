@@ -11,3 +11,6 @@
 /swagger_output.json
 /db/**/client
 /src/generated-typings/
+/artifacts/
+/typechain-types/
+gasReport.txt

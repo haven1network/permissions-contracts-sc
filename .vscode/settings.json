@@ -1,0 +1,5 @@
+{
+  "[solidity]": {
+    "editor.formatOnSave": false
+  }
+}

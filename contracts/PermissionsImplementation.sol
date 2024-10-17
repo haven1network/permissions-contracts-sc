@@ -343,6 +343,8 @@ contract PermissionsImplementation {
     function addNewRole(string calldata _roleId, string calldata _orgId,
         uint256 _access, bool _voter, bool _admin, address _caller) external
     onlyInterface orgApproved(_orgId) orgAdmin(_caller, _orgId) {
+        // block creation of admin and voting roles
+        require(!_voter && !_admin, "cannot create admin or voting roles");
         //add new roles can be created by org admins only
         roleManager.addRole(_roleId, _orgId, _access, _voter, _admin);
     }
@@ -373,6 +375,8 @@ contract PermissionsImplementation {
     function assignAdminRole(string calldata _orgId, address _account,
         string calldata _roleId, address _caller) external
     onlyInterface orgExists(_orgId) networkAdmin(_caller) {
+        // block attempts to assign adminRole to current amin
+        require(_account != _caller, "cannot assign admin role to current admin");
         // block attempts to assign any role other than network admin
         require(keccak256(abi.encode(_roleId)) == keccak256(abi.encode(adminRole)), "can only assign network admin role");
         accountManager.assignAdminRole(_account, _orgId, _roleId, 1);
