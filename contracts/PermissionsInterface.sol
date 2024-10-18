@@ -181,6 +181,15 @@ contract PermissionsInterface {
 
     }
 
+    /**
+       * @notice interface to cancel a pending admin role assignment
+       * @dev since our network will only ever have one admin, there is no need to vote 
+       * to cancel an assignment that is subject to voting
+       */
+    function cancelAssignment(uint256 _pendingOp) external {
+        permImplementation.cancelAssignment(_pendingOp, msg.sender);
+    }
+
     /** @notice interface to update account status
         this can be executed by org admin accounts only
       * @param _orgId unique id of the organization to which the account belongs

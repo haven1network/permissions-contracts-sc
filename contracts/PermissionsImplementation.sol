@@ -344,7 +344,7 @@ contract PermissionsImplementation {
         uint256 _access, bool _voter, bool _admin, address _caller) external
     onlyInterface orgApproved(_orgId) orgAdmin(_caller, _orgId) {
         // block creation of admin and voting roles
-        require(!_voter && !_admin, "cannot create admin or voting roles");
+        require(!_voter, "cannot create admin or voting roles");
         //add new roles can be created by org admins only
         roleManager.addRole(_roleId, _orgId, _access, _voter, _admin);
     }
@@ -421,6 +421,14 @@ contract PermissionsImplementation {
             accountManager.addNewAdmin(_orgId, _account);
             updateVoterList(adminOrg, _account, true);
         }
+    }
+
+    /**
+     * @notice function to cancel a pending admin role assignment.
+     * @dev this can only be done by the network admin
+     */
+    function cancelAssignment(uint256 _pendingOp, address _caller) external onlyInterface networkAdmin(_caller) {
+          voterManager.cancelPendingOp(adminOrg, _pendingOp);
     }
 
     /** @notice function to update account status. can be executed by org admin

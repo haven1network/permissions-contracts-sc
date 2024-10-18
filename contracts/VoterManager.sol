@@ -55,6 +55,8 @@ contract VoterManager {
     event VotingItemAdded(string _orgId);
     event VoteProcessed(string _orgId);
 
+    event VoteCanceled(string _orgId);
+
     /** @notice confirms that the caller is the address of implementation
         contract
     */
@@ -195,6 +197,19 @@ contract VoterManager {
             return true;
         }
         return false;
+    }
+
+    function cancelPendingOp(string calldata _authOrg, uint256 _pendingOp) external onlyImplementation {
+        require(_checkPendingOp(_authOrg, _pendingOp) == true, "nothing to cancel");
+
+        uint256 id = _getVoterOrgIndex(_authOrg);
+        // Clean up pending org
+        orgVoterList[id].pendingOp.orgId = "";
+        orgVoterList[id].pendingOp.enodeId = "";
+        orgVoterList[id].pendingOp.account = address(0);
+        orgVoterList[id].pendingOp.opType = 0;
+
+        emit VoteCanceled(_authOrg);
     }
 
     /** @notice returns the details of any pending operation to be approved

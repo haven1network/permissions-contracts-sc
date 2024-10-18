@@ -100,7 +100,7 @@ describe("PermissionsImplementation", () => {
         await permissionsInterface.waitForDeployment();
     });
 
-    describe("Set initial admin prior to init", () => {
+    describe("Admin management", () => {
         it("Successfully init permissions upgradable", async () => {
             await permissionsUpgradable.init(
                 await permissionsInterface.getAddress(),
@@ -359,11 +359,132 @@ describe("PermissionsImplementation", () => {
                     .connect(user)
                     .addNewRole(adminRole, adminOrg, 3, true, false)
             ).to.be.revertedWith("cannot create admin or voting roles");
+        });
+        it("Can only cancel a voting as an admin", async () => {
+            // The pending op id of an admin assignment is 4
+            await expect(
+                permissionsInterface.connect(association).cancelAssignment(4)
+            ).to.be.revertedWith("account is not a network admin account");
+        });
+        it("Only the interface can call cancelAssignment in the Implementation", async () => {
+            // The pending op id of an admin assignment is 4
+            await expect(
+                permissionsImplementation
+                    .connect(association)
+                    .cancelAssignment(4, association.address)
+            ).to.be.revertedWith("can be called by interface contract only");
+        });
+        it("Only the implementation can call cancelAssignment in VoterManager", async () => {
+            // The pending op id of an admin assignment is 4
+            await expect(
+                voterManager.connect(association).cancelPendingOp(adminOrg, 4)
+            ).to.be.revertedWith("invalid caller");
+        });
+        it("Can only cancel existing pending operations", async () => {
+            // The pending op id of an admin assignment is 4
+            await expect(
+                permissionsInterface.connect(user).cancelAssignment(4)
+            ).to.be.revertedWith("nothing to cancel");
+        });
+        it("Successfully cancel an assignment", async () => {
+            await permissionsInterface
+                .connect(user)
+                .assignAdminRole(adminOrg, association.address, adminRole);
             await expect(
                 permissionsInterface
                     .connect(user)
-                    .addNewRole(adminRole, adminOrg, 3, false, true)
-            ).to.be.revertedWith("cannot create admin or voting roles");
+                    .assignAdminRole(adminOrg, association.address, adminRole)
+            ).to.be.revertedWith(
+                "items pending for approval. new item cannot be added"
+            );
+            let [orgId, enodeId, account, opType] =
+                await permissionsInterface.getPendingOp(adminOrg);
+            expect(orgId).to.eq(adminOrg);
+            expect(enodeId).to.eq("");
+            expect(account).to.eq(association.address);
+            expect(opType).to.eq(opType);
+            await expect(permissionsInterface.connect(user).cancelAssignment(4))
+                .to.emit(voterManager, "VoteCanceled")
+                .withArgs(adminOrg);
+
+            [orgId, enodeId, account, opType] =
+                await permissionsInterface.getPendingOp(adminOrg);
+            expect(orgId).to.eq("");
+            expect(enodeId).to.eq("");
+            expect(account).to.eq(ethers.ZeroAddress);
+            expect(opType).to.eq(0);
+            const role = await accountManager.getAccountRole(
+                association.address
+            );
+            expect(role).to.eq(adminRole);
+            const status = await accountManager.getAccountStatus(
+                association.address
+            );
+            expect(status).to.eq(1);
+        });
+        it("Successfully start a new assignment and approve it", async () => {
+            // Set association as a basic user again
+            await permissionsInterface
+                .connect(user)
+                .assignAccountRole(association.address, adminOrg, basicRole);
+
+            const r = await accountManager.getAccountRole(association.address);
+            expect(r).to.eq(basicRole);
+            const s = await accountManager.getAccountStatus(
+                association.address
+            );
+            expect(s).to.eq(2);
+
+            await expect(
+                permissionsInterface
+                    .connect(user)
+                    .assignAdminRole(adminOrg, association.address, adminRole)
+            )
+                .to.emit(accountManager, "AccountAccessModified")
+                .withArgs(association.address, adminOrg, adminRole, true, 1)
+                .to.emit(voterManager, "VotingItemAdded")
+                .withArgs(adminOrg);
+
+            await expect(
+                permissionsInterface
+                    .connect(user)
+                    .approveAdminRole(adminOrg, association.address)
+            )
+                .to.emit(voterManager, "VoteProcessed")
+                .withArgs(adminOrg)
+                .and.to.emit(accountManager, "AccountAccessModified")
+                .withArgs(user.address, adminOrg, orgAdminRole, true, 1) // assign org admin
+                .and.to.emit(accountManager, "AccountAccessModified")
+                .withArgs(user.address, adminOrg, orgAdminRole, true, 2) // approve org admin
+                .and.to.emit(accountManager, "AccountAccessModified")
+                .withArgs(user.address, adminOrg, orgAdminRole, false, 6) // revoked org admin
+                .and.to.emit(voterManager, "VoterDeleted")
+                .withArgs(adminOrg, user.address) // removed old admin from voter list
+                .and.to.emit(accountManager, "AccountAccessModified")
+                .withArgs(association.address, adminOrg, orgAdminRole, true, 1) // assign org admin role to new admin
+                .and.to.emit(accountManager, "AccountAccessModified")
+                .withArgs(association.address, adminOrg, orgAdminRole, true, 2) // approve org admin role to new admin
+                .and.to.emit(accountManager, "AccountAccessModified")
+                .withArgs(association.address, adminOrg, adminRole, true, 1) // assign network admin role to new admin
+                .and.to.emit(accountManager, "AccountAccessModified")
+                .withArgs(association.address, adminOrg, adminRole, true, 2) // approve network admin role to new admin
+                .and.to.emit(voterManager, "VoterAdded")
+                .withArgs(adminOrg, association.address); // add new admin to voter list
+
+            const role = await accountManager.getAccountRole(
+                association.address
+            );
+            expect(role).to.equal(adminRole);
+            const status = await accountManager.getAccountStatus(
+                association.address
+            );
+            expect(status).to.equal(2);
+            expect(await accountManager.orgAdminExists(adminOrg)).to.equal(
+                true
+            );
+            expect(
+                await permissionsInterface.isNetworkAdmin(association.address)
+            ).to.equal(true);
         });
     });
 
