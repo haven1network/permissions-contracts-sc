@@ -38,7 +38,7 @@ module.exports = async function (deployer, network, accounts) {
     const permissionsImplementation = await PermissionsImplementation.deployed();
 
     await pu.init(permissionsInterface.address, permissionsImplementation.address);
-    
+
     const filePath = 'permission-config.json';
     const data = {
         permissionModel: 'v2',
@@ -57,7 +57,7 @@ module.exports = async function (deployer, network, accounts) {
         subOrgBreadth: 3,
         subOrgDepth: 4
     }
-    
+
     try {
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
         console.log(`${filePath} file has been written successfully!`);
